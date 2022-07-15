@@ -18,3 +18,15 @@ The Supplementary Code directory contains three folders :
 We also provide a link to Zenodo which house the freely available results of simulations shown in figure 2: https://doi.org/10.5281/zenodo.6839683
 
 For details and pipelines related to genome simulation, please refer to [this git repository](https://github.com/LukeAndersonTrocme/genome_simulations)
+
+# Main Figures
+
+For more information, please refer to the [PDF](https://github.com/LukeAndersonTrocme/genes_in_space/blob/main/genes_in_space.pdf) 
+
+![Figure1](https://github.com/LukeAndersonTrocme/genes_in_space/blob/af509d646a3eab976fa674dff7103aea44a0624c/misc/fig1_lowres.png)
+
+![Figure2](https://github.com/LukeAndersonTrocme/genes_in_space/blob/af509d646a3eab976fa674dff7103aea44a0624c/misc/fig2_lowres.png)
+
+![Figure3](https://github.com/LukeAndersonTrocme/genes_in_space/blob/af509d646a3eab976fa674dff7103aea44a0624c/misc/fig3_lowres.png)
+
+![Figure4](https://github.com/LukeAndersonTrocme/genes_in_space/blob/af509d646a3eab976fa674dff7103aea44a0624c/misc/fig4_lowres.png)
