@@ -13,9 +13,9 @@ Luke Anderson-Trocmé, Dominic Nelson, Shadi Zabad, Alex Diaz-Papkovich, Nikolas
 
  - [watershed_enrichment](https://github.com/LukeAndersonTrocme/genes_in_space/tree/main/supplementary_code/watershed_enrichment): compute watershed enrichment statisitics
 
-We also provide a link to Zenodo which house the freely available results of simulations shown in figure 2: https://doi.org/10.5281/zenodo.6839683
+Whole genome simulations of 1.4 million individuals are freely available on [Zenodo](https://doi.org/10.5281/zenodo.6839683).
 
-For details and pipelines related to genome simulation, please refer to [this git repository](https://github.com/LukeAndersonTrocme/genome_simulations)
+Pipelines related to genome simulation are available [here](https://github.com/LukeAndersonTrocme/genome_simulations).
 
 # Main Figures
 
