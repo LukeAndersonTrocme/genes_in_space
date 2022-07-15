@@ -1,0 +1,116 @@
+---
+title: "Generate Figure 1"
+author:
+- name: Luke Anderson-Trocmé,
+  affiliation:
+  - &cruk Department of Human Genetics, McGill University,  Montreal, Canada
+date: '`r format(Sys.Date(), "%Y-%B-%d")`'
+output:
+  html_notebook:
+    df_print: paged
+    code_folding: show
+    toc: yes
+    toc_float:
+      collapsed: false  
+      smooth_scroll: false
+---
+
+```{r setup, include=FALSE}
+pacman::p_load(ggplot2)
+pacman::p_load(cowplot)
+pacman::p_load(dplyr)
+pacman::p_load(tidyverse)
+pacman::p_load(sf)
+pacman::p_load(geosphere)
+
+pacman::p_load("mapmisc")
+pacman::p_load("ggspatial")
+#crs with 45degree shift using +gamma
+# lat_0 and lonc centered on Quebec City
+crs_string = "+proj=omerc +lat_0=46.8560266 +lonc=-71.6218555 +alpha=0 +k_0=.7 +datum=WGS84 +units=m +no_defs +gamma=35"
+
+political_processed <- readRDS("~/Documents/geographic_data/political_processed.RDS")
+wts_processed <- readRDS("~/Documents/geographic_data/wts_processed.RDS")
+simplified_water_area <- readRDS("~/Documents/geographic_data/simplified_water_area.RDS")
+m_gplot <- readRDS(file = "/Users/luke/Documents/can_dem/quebec_raster_may2022_0.001_1e7_new_crs.RDS") %>% filter(value > 0) %>% mutate(value = ifelse(value >= 1000, 999,value))
+
+locations <-readRDS("~/Documents/Genizon/Data/RDS/watershed_locations.RDS")
+iid_locations_projections <- readRDS("~/Documents/Genizon/Data/RDS/iid_projections_presumed_fc.RDS") %>% left_join(locations)
+```
+
+# Dimension Reduction
+```{r,fig.height=7, fig.width=7 warning=FALSE, include=FALSE}
+umap_plot <-
+  ggplot() +
+  scale_colour_identity() +
+  geom_point(data = filter(iid_locations_projections),
+                           aes(x = umap1,y = umap2, color = rgb),
+             size = 1) +
+  theme_classic() +
+  labs(x = "UMAP 1", y = "UMAP 2") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_text(size = 30))
+
+umap_plot
+```
+
+```{r,fig.height=5, fig.width=10, warning=FALSE, include=FALSE}
+locs_sf <- iid_locations_projections %>%
+  left_join(locations) %>%
+  filter(!is.na(Lon)) %>%
+  st_as_sf(coords = c("Lon", "Lat"), crs = 4269) %>%
+  st_transform(crs = 3358) %>% # crs with meters
+  st_jitter(amount = 5000) %>% # add noise
+  st_transform(crs = crs_string) # rotate
+
+geo_plot <-
+  ggplot()+
+  geom_contour_filled(data = m_gplot, aes(x = x, y = y, z = value), bins = 12, alpha = 0.9, color = "NA") +
+  geom_sf(data=political_processed %>% filter(ctry_en %in% c("Canada"), !juri_en %in% c("Quebec")), fill = "gray95", color = NA) +
+  geom_sf(data=political_processed %>% filter(!ctry_en %in% c("Canada","Ocean")), fill = "gray95", color = NA)+
+  geom_sf(data=wts_processed, fill = NA, color = "black", size = 0.15) +
+  geom_sf(data = simplified_water_area, size = 0.15, color = "aliceblue", fill = "aliceblue") +
+  geom_sf(data = locs_sf, aes(color = rgb), size = 2) +
+  scale_color_identity() +
+  scale_fill_grey(name = "Elevation (m)", start=0.9, end=0.2) + 
+  guides(fill = "none") +
+  coord_sf(crs = crs_string,
+           xlim = c(-249000,382000),
+           ylim = c(-118000,160000)) + 
+  theme_bw() +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks= element_blank(),
+        panel.grid = element_blank(),
+        plot.margin = margin(0,0,0,0),
+        legend.title = element_blank(),
+        legend.position = "bottom",
+        legend.direction = "horizontal",
+        legend.text=element_text(size=rel(0.8)),
+        axis.line = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.background = element_rect(fill = "aliceblue")) +
+  guides(fill="none", color = "none") +  
+  ggspatial::annotation_scale(location = "bl", width_hint = 0.2) +
+  ggspatial::annotation_north_arrow(location = "bl", which_north = "true", 
+                         pad_x = unit(0.1, "in"), pad_y = unit(0.3, "in"),
+                         style = north_arrow_fancy_orienteering)
+
+#ggsave(geo_plot, filename = "~/Documents/Genizon/Genizon_Scripts/Latex/Figures/geo_plot_altitude_12bins.jpg", height = 10, width = 20, dpi = 400)
+
+simple_flow <- cowplot::ggdraw() + cowplot::draw_image("~/Documents/Genizon/Genizon_Scripts/Latex/Figures/region_flow_y_3_0.2_60_rnr.jpg", scale = 0.99)
+
+
+timeStart <- Sys.time()
+pp2 <- plot_grid(umap_plot, simple_flow, nrow = 1,
+                   labels = c("A","B"), label_size = 35,
+                 rel_widths = c(0.35,1))
+
+fig1<-cowplot::plot_grid(pp2, geo_plot , ncol = 1, rel_heights = c(0.58,1), labels = c("","C"), label_size = 35)
+ggsave(fig1, file = "~/Documents/Genizon/Genizon_Scripts/Latex/Figures/figure1.12.jpg", height = 15, width = 21, dpi = 400)
+timeEnd <- Sys.time()
+difftime(timeEnd, timeStart, units='mins') 
+#geo_plot
+#ggsave(geo_plot, file = paste0(figurePath,"geo_plot.jpg"), height = 20, width = 30)
+```

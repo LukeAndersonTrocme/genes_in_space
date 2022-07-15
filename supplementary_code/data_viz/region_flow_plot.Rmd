@@ -1,0 +1,377 @@
+
+---
+title: "Ancestral Contributions of All of Quebec"
+author:
+- name: Luke Anderson-Trocmé,
+  affiliation:
+  - &cruk Department of Human Genetics, McGill University,  Montreal, Canada
+date: '`r format(Sys.Date(), "%Y-%B-%d")`'
+output:
+  html_notebook:
+    df_print: paged
+    code_folding: show
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+
+```{r setup, include=FALSE}
+pacman::p_load(tidyverse)
+pacman::p_load(dplyr)
+pacman::p_load(plyr)
+pacman::p_load(data.table)
+pacman::p_load(reshape2) 
+pacman::p_load(DescTools)
+pacman::p_load(riverplot)
+pacman::p_load(RColorBrewer)
+pacman::p_load(riverplot)
+library(ggspatial)
+
+balsac_summary_stats <- fread("/Users/luke/Documents/Genizon/BALSAC/Balsac_aout_2021_v2/balsac_summary_stats.csv")
+
+pedigree <- fread("/Users/luke/Documents/Genizon/BALSAC/Balsac_aout_2021_v2/tout_balsac.csv")
+```
+
+```{r}
+# define "St. Lawrence Drainage Area" Charlevoix towns
+cvx <- c("Les Eboulements", "La Malbaie", "Baie Ste Catherine", "Petite Riviere St Francois", "St Louis De L''Isle Aux Coudres", "St Bernard De L''Ile Aux Coudres", "Cap A L''Aigle", "St Irenee", "Pointe Au Pic")
+# these are towns are in Beaupre, not Charlevoix 
+not_cvx <- c("Chateau Richer", "St Ferreol Les Neiges", "St Joachim", "St Tite Des Caps")
+# these are towns are in Appalaches, not Beauce 
+not_beauce <- c("L''Islet Sur Mer","St Jean Port Joli","Berthier Sur Mer","Cap St Ignace","St Etienne De Beaumont","St Michel De Bellechasse","St Vallier","St Roch Des Aulnaies","St Antoine De L''Isle Aux Grues","Grosse Ile")
+
+region_yax <-
+  tibble(region = c(
+    "Abitibi",
+    "Outaouais",
+    "Laurentides",    
+    "Montréal",
+    "Montérégie",
+    "Estrie",
+    "CQ", #Centre-du-Québec
+    "Mauricie",
+    "Beauce",
+    "Appalaches",
+    "CN", #Capitale-Nationale
+    "Charlevoix",
+    "SLSJ", #Saguenay--Lac-Saint-Jean
+    "BSL", #Bas-Saint-Laurent
+    "Gaspésie"
+  ), yax = c(1:15), 
+  rgb = c(
+    "#BADDA4", #Abitibi
+    "#DD94F7", #Outaouais
+    "#E4B3BE", #Laurentides
+    "#CF7ABB", #Montréal
+    "#E4928F", #Montérégie
+    "#C9997B", #Estrie
+    "#DA4A66", #Centre-du-Québec
+    "#E73FAE", #Mauricie
+    "#856A02", #Beauce
+    "#A1B63D", #Appalaches
+    "#AFAC71", #Capitale-Nationale
+    "#227991", #Charlevoix
+    "#239671", #Saguenay--Lac-Saint-Jean
+    "#5CAAF0", #Bas-Saint-Laurent
+    "#9A3799" #Gaspésie
+  )) %>%
+  mutate(region = dplyr::recode(region,
+                                "Abitibi" = "ABT",
+                                "Outaouais" = "OUT",
+                                "Laurentides" = "LAU",
+                                "Montréal" = "MTL",
+                                "Montérégie" = "MNT",
+                                "Estrie" = "EST",
+                                "Centre-du-Québec" = "CQ",
+                                "Mauricie" = "MCI",
+                                "Beauce" = "BCE",
+                                "Appalaches" = "APP",
+                                "Capitale-Nationale" = "CN",
+                                "Charlevoix" = "CVX",
+                                "Saguenay--Lac-Saint-Jean" = "SLSJ",
+                                "Bas-Saint-Laurent" = "BSL",
+                                "Gaspésie" = "GSP")) 
+
+region_yax
+
+founder_yax <- region_yax %>% mutate(yax_mp = NA, yax_mp2 = yax + 0.1)
+```
+
+
+```{r}
+qc_region_lieu <- 
+  left_join(fread("~/Documents/Genizon/Data/qc_region_lieu.csv"),
+            fread("~/Documents/Genizon/Data/watershed_locations_feb2022.csv")) %>%
+  mutate(qc_region = dplyr::recode(qc_region,
+                "Outaouais" = "OUT",
+                "Laurentides" = "LAU",
+                "Montréal" = "MTL",
+                "Montérégie" = "MNT",
+                "Estrie" = "EST",
+                "Centre-du-Québec" = "CQ",
+                "Mauricie" = "MCI",
+                "Beauce" = "BCE",
+                "Appalaches" = "APP",
+                "Capitale-Nationale" = "CN",
+                "Charlevoix" = "CVX",
+                "Saguenay--Lac-Saint-Jean" = "SLSJ",
+                "Bas-Saint-Laurent" = "BSL",
+                "Gaspésie" = "GSP")) %>%
+  mutate(region = case_when(qc_region == "Abitibi-Témiscamingue" ~ "ABT",
+                            qc_region == "Nord-du-Québec" ~ "OUT",
+                            qc_region == "Laval" ~ "MTL",
+                            qc_region == "Lanaudière" ~ "LAU",
+                            qc_region == "Côte-Nord" ~ "GSP",
+                            qc_region == "Gaspésie--Îles-de-la-Madeleine" ~ "GSP",
+                            t %in% not_cvx ~ "CN",
+                            min_wts_name %in% c("Gouffre", "Malbaie") ~ "CVX",
+                            t %in% cvx ~ "CVX", # t in "St. Lawrence Drainage Area" added manually
+                            qc_region == "Chaudière-Appalaches" & 
+                              !min_wts_name %in% c("Big Black", "Etchemin", "Headwaters Saint John","Lower Loup") &
+                              !t %in% not_beauce ~ "BCE",
+                            qc_region == "Chaudière-Appalaches" ~ "APP",
+                            TRUE ~ qc_region)) %>%
+  distinct(lieu, resid, region, Lon, Lat, t, min_wts_name) %>%
+  left_join(region_yax) %>%
+  dplyr::rename(lieum = lieu)
+
+```
+
+
+
+
+
+```{r}
+small_limit <- 0.2
+time_bin_size <- 60
+time_start <- 1620
+time_end <- 1979
+
+marriage_location <- 
+  qc_region_lieu %>%
+  distinct(lieum, yax, rgb)
+
+birth_location <- marriage_location %>% dplyr::rename(lieump = lieum, yax_mp = yax, rgb_mp = rgb)
+
+# prefix for parental locations 
+flab <-  qc_region_lieu %>% distinct(region, yax) %>% dplyr::rename(t_m = region)
+plab <- flab %>% dplyr::rename(yax_mp = yax, t_mp = t_m)
+
+ancestral_contributions <- 
+  balsac_summary_stats %>%
+  left_join(dplyr::select(pedigree, ind, lieump, lieum, datem), by = "ind")%>% 
+  filter(!is.na(datem)) %>%
+  left_join(marriage_location, by = "lieum") %>% 
+  left_join(birth_location, by = "lieump") %>%
+  left_join(founder_yax, by = c("yax","rgb", "yax_mp")) %>%
+  mutate(datem = case_when(datem < time_start ~ time_start,
+                           datem > time_end ~ time_end,
+                           TRUE ~ as.numeric(datem)),
+         time_bin = datem - datem %% time_bin_size,
+         yax_mp = ifelse(is.na(yax_mp), yax_mp2, yax_mp),
+         rgb_mp = ifelse(is.na(rgb_mp), "#FFFFFF", rgb_mp)) %>%
+  filter(!is.na(yax))
+
+time_axis <- ancestral_contributions %>% distinct(time_bin) %>% arrange(time_bin) %>% pull(time_bin)
+#table(ancestral_contributions$time_bin)
+
+contribution_links <-
+  ancestral_contributions %>%
+  dplyr::group_by(time_bin, yax, rgb, yax_mp, rgb_mp) %>%
+  dplyr::summarise(n_ancestors = n(),
+                   total_contribution = sum(expected_contribution, na.rm = T)) %>%
+  ungroup() %>%
+  mutate(gen = dense_rank(time_bin), gen_p = gen -1)
+
+yax_contributions <-
+  contribution_links %>%
+  filter(yax != yax_mp, rgb_mp != "#FFFFFF") %>% # consider immigration events
+  group_by(yax) %>%
+  dplyr::summarise(yax_contribution = sum(total_contribution)) %>%
+  left_join(contribution_links) %>%
+  mutate(relative_contribution = total_contribution / yax_contribution) %>%
+  slice_max(. , relative_contribution, prop = small_limit) %>%
+  mutate(keep = 1) %>%
+  full_join(contribution_links)%>%
+  dplyr::mutate(labs =  "",
+                keep = ifelse(yax == yax_mp | rgb_mp == "#FFFFFF", 1, keep),
+                total_contribution = ifelse(is.na(keep), 0, total_contribution)
+                #total_contribution = ifelse(rgb_mp == "#FFFFFF" & total_contribution > 100000, 100000, total_contribution
+                                            #)
+  ) %>%
+  dplyr::select(labs, gen, yax, rgb, gen_p, yax_mp, rgb_mp, total_contribution)
+
+label_gen <- 
+  ancestral_contributions %>%
+  distinct(yax, rgb) %>%
+  mutate(yax_mp = yax,
+         rgb_mp = rgb,
+         total_contribution = 0,
+         gen = max(yax_contributions$gen) + 1, gen_p = max(yax_contributions$gen) ) %>%
+  left_join(flab) %>%
+  left_join(plab) %>%
+  mutate(labs = t_m) %>%
+  filter(!is.na(t_m))
+
+time_line <- tibble(yax = -1, yax_mp = -0.9, 
+                    gen = 0:length(time_axis),
+                    gen_p = gen - 1,
+                    labs = c(as.character(time_axis), max(time_axis) + time_bin_size),
+                    rgb = "#333333",
+                    rgb_mp = "#333333",
+                    total_contribution = 1)
+
+yax_links <- bind_rows(yax_contributions,label_gen) %>% bind_rows(time_line)
+
+
+
+source("/Users/luke/Documents/Genizon/Genizon_Scripts/cleaner/make_riverOut.R")
+
+riverOut <- make_riverOut(yax_links)
+y <- 3
+
+timeStart <- Sys.time()
+pn <- paste0("~/Documents/Genizon/Genizon_Scripts/Latex/Figures/region_flow_y_",y,"_",small_limit,"_",time_bin_size,"_abt.jpg")
+jpeg(pn, width=5, height=11, res = 400, units = "in")
+plot( riverOut, fix.pdf=F, yscale=y, plot_area=c(0.97, 0.97), rescale=T, edgestyle = "straight",  textcex = 1.3, disentangle=TRUE) #
+dev.off()
+timeEnd <- Sys.time()
+difftime(timeEnd, timeStart, units='mins')  
+
+pacman::p_load("OpenImageR")
+image <- readImage(pn)
+r <- rotateFixed(image, 90)
+r2 <- cropImage(r, new_width = 500:1850, new_height = 400:4050, type = "user_defined")
+pn2 <- paste0("~/Documents/Genizon/Genizon_Scripts/Latex/Figures/region_flow_y_",y,"_",small_limit,"_",time_bin_size,"_abtr.jpg")
+writeImage(r2, pn2)
+```
+
+```{r}
+make_plot <- T
+plot_name <- "~/Documents/Genizon/Genizon_Scripts/Latex/Figures/flow_towns_geo_plot_regions.jpg"
+if(make_plot){
+pacman::p_load(sf)
+pacman::p_load("ggspatial") # geom_spatial_segment
+
+political_processed <- readRDS("~/Documents/geographic_data/political_processed.RDS")
+wts_processed <- readRDS("~/Documents/geographic_data/wts_processed.RDS")
+simplified_water_area <- readRDS("~/Documents/geographic_data/simplified_water_area.RDS")
+#crs with 45degree shift using +gamma
+# lat_0 and lonc centered on Quebec City
+crs_string = "+proj=omerc +lat_0=46.8560266 +lonc=-71.6218555 +alpha=0 +k_0=.7 +datum=WGS84 +units=m +no_defs +gamma=35"
+
+all_towns_sf <- qc_region_lieu %>%
+  filter(!is.na(Lon)) %>%
+  st_as_sf(coords = c("Lon", "Lat"), crs = 4269)
+
+region_centers <- qc_region_lieu %>%
+  filter(!is.na(Lon)) %>% group_by(region) %>%
+  dplyr::summarise(Lon = mean(Lon), Lat = mean(Lat)) %>%
+  st_as_sf(coords = c("Lon", "Lat"), crs = 4269)
+
+qc_region_shp<-
+  read_sf("/Users/luke/Downloads/Sda/version_courante/SHP/regio_s.shp") %>% 
+    mutate(region = case_when(RES_NM_REG == "Abitibi-Témiscamingue" ~ "Outaouais",
+                            RES_NM_REG == "Nord-du-Québec" ~ "Outaouais",
+                            RES_NM_REG == "Laval" ~ "Montréal",
+                            RES_NM_REG == "Lanaudière" ~ "Laurentides",
+                            RES_NM_REG == "Côte-Nord" ~ "Gaspésie",
+                            RES_NM_REG == "Gaspésie--Îles-de-la-Madeleine" ~ "Gaspésie",
+                            TRUE ~ RES_NM_REG))%>% rmapshaper::ms_simplify()
+
+dissolved_regions <- qc_region_shp %>% group_by(region) %>% dplyr::summarise(geometry = rmapshaper::ms_dissolve(geometry))
+
+
+
+flow_towns_geo_plot <-
+  ggplot() +
+  geom_sf(data=political_processed %>% filter(juri_en %in% c("Quebec")), fill = "black", color = NA, alpha = 0.2)+
+  #geom_sf(data=political_processed %>% filter(ctry_en %in% c("Canada"), !juri_en %in% c("Quebec")), fill = "gray95", color = NA) +
+  #geom_sf(data=political_processed %>% filter(!ctry_en %in% c("Canada","Ocean")), fill = "gray95", color = NA)+
+  #geom_sf(data = simplified_water_area, size = 0.3, color = "aliceblue", fill = "aliceblue") +
+  geom_sf(data=qc_region_shp, fill = NA, color = "grey60", size = 1, linetype = 3) +
+  geom_sf(data=dissolved_regions, fill = NA, color = "grey20", size = 1) +
+  geom_sf(data = all_towns_sf,
+          aes(color = rgb)) +
+  #ggrepel::geom_label_repel(data = all_towns_sf %>% filter(t %in% apa_t) %>% distinct(t, geometry),
+  #  aes(label = t, geometry = geometry), fontface="bold", max.overlaps = Inf, size = 4, force = 10,
+  #  stat = "sf_coordinates") +
+  ggrepel::geom_label_repel(data = region_centers %>% filter(region %in% c("Appalaches","Beauce","BSL", "Montérégie","CQ","Estrie","Gaspésie")),
+    aes(label = region, geometry = geometry), 
+    fontface="bold", max.overlaps = Inf, size = 10, 
+    min.segment.length = 0, xlim = c(-65,-57),
+    stat = "sf_coordinates") +
+    ggrepel::geom_label_repel(data = region_centers %>% filter(!region %in% c("Appalaches","Beauce","BSL", "Montérégie","CQ","Estrie","Gaspésie")),
+    aes(label = region, geometry = geometry), 
+    fontface="bold", max.overlaps = Inf, size = 10, 
+    min.segment.length = 0, ylim = c(50,51),
+    stat = "sf_coordinates") +
+  scale_color_identity() +
+  coord_sf(xlim = c(-79,-57),
+           ylim = c(45,51)) + 
+  theme_bw() +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks= element_blank(),
+        panel.grid = element_blank(),
+        plot.margin = margin(0,0,0,0),
+        legend.title = element_blank(),
+        legend.position = "bottom",
+        legend.direction = "horizontal",
+        legend.text=element_text(size=rel(0.8)),
+        axis.line = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.background = element_rect(fill = "aliceblue")) +
+  guides(fill=guide_legend(nrow=1), color = F)
+
+
+ggsave(flow_towns_geo_plot, filename = plot_name, height = 12, width = 27)
+}
+```
+
+
+
+
+
+```{r}
+
+  
+
+flow_towns <- readRDS("~/Documents/Genizon/Data/RDS/iid_projections_presumed_fc.RDS") %>% inner_join(qc_region_lieu)  %>% filter(!is.na(Lon))
+yax_rgb <-  fread("~/Documents/Genizon/Data/custom_colors_14.csv")
+
+qc_region_shp<-
+  read_sf("/Users/luke/Downloads/Sda/version_courante/SHP/regio_s.shp") %>% 
+  mutate(region = ifelse(RES_NM_REG == "Gaspésie--Îles-de-la-Madeleine", "Gaspésie", RES_NM_REG)) %>% 
+  ms_simplify() %>% inner_join(region_yax)
+
+locs_t <- qc_region_lieu  %>%
+  filter(!is.na(Lon), !is.na(yax)) %>%
+  distinct(t, Lon, Lat, region) %>%
+  st_as_sf(coords = c("Lon", "Lat"), crs = 4269)
+
+library(sf)
+
+town_colors <- flow_towns %>% filter(yax %in% c(1:4), !is.na(rgb)) %>% distinct(rgb, region, umap1, umap2, yax, Lon, Lat) %>%
+  sf::st_as_sf(coords = c("Lon", "Lat"), crs = 4269) %>%
+  st_transform(crs = 3358) %>% # crs with meters
+  st_jitter(amount = 5000)
+
+op <-
+  ggplot()+
+  geom_sf(data=political_processed %>% filter(juri_en %in% c("Quebec")), fill = "gray90", color = NA) +
+  #geom_sf(data=wts_processed, fill = NA, color = "white", size = 0.75) +
+  geom_sf(data = town_colors,aes(geometry = geometry, color = rgb)) +
+  #ggrepel::geom_label_repel(data = qc_region_shp,
+  #  aes(label = region, geometry = geometry), fontface="bold", color = "white", max.overlaps = Inf,
+  #  stat = "sf_coordinates") +
+scale_color_identity() +
+  facet_wrap(.~region) +
+#scale_fill_discrete() +
+  guides(color = "none", fill = "none")+
+  coord_sf(crs = crs_string,
+           xlim = c(-249000,382000),
+           ylim = c(-118000,160000))
+
+```

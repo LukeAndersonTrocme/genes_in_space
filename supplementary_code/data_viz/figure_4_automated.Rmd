@@ -1,0 +1,872 @@
+---
+title: "Visualize Coalescence Rates by PCA Cline"
+author:
+- name: Luke Anderson-Trocmé,
+  affiliation:
+  - &cruk Department of Human Genetics, McGill University,  Montreal, Canada
+date: '`r format(Sys.Date(), "%Y-%B-%d")`'
+output:
+  html_notebook:
+    df_print: paged
+    code_folding: show
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+
+```{r setup, include=FALSE}
+# clear global environment
+# rm(list=ls())
+
+# load libraries
+pacman::p_load(tidyverse)
+pacman::p_load(sf)
+pacman::p_load(cowplot)
+pacman::p_load(geosphere)
+pacman::p_load(ggspatial) # geom_spatial_segment
+pacman::p_load(ggnewscale) # two color scales
+
+rdsPath <- '~/Documents/Genizon/Data/RDS/'
+figurePath <- '~/Documents/Genizon/Genizon_Scripts/Latex/Figures/'
+
+political_processed <- readRDS("~/Documents/geographic_data/political_processed.RDS")
+wts_processed <- readRDS("~/Documents/geographic_data/wts_processed.RDS")
+simplified_water_area <- readRDS("~/Documents/geographic_data/simplified_water_area.RDS")
+m_gplot <- readRDS(file = "/Users/luke/Documents/can_dem/combined_gplot_may2022_1e7.RDS") %>% filter(value > 0) %>% mutate(value = ifelse(value >= 1000, 999,value))
+
+watershed_clines <- read.csv(file = "~/Documents/Genizon/Data/pca_watershed_groups.csv") %>% dplyr::select(WSCSSDA, cline)
+watershed_boundaries <- readRDS("~/Documents/Genizon/Data/RDS/watershed_boundaries.RDS")
+locations<-readRDS(paste0(rdsPath,"watershed_locations.RDS")) %>% dplyr::rename(lieum = lieump) %>% left_join(watershed_clines)
+pedigree_full <- data.table::fread('~/Documents/Genizon/BALSAC/tout_balsac_sept2020.txt')
+
+
+loc <- readRDS("~/Documents/Genizon/Data/RDS/watershed_locations.RDS") # see Drainage_Area.Rmd for details
+src <- loc                                        # set all towns as source towns `A`
+names(src) <- paste0(names(src),"A")              # add suffix for permutation
+
+snk <- loc                                        # set all towns as source towns `B`
+names(snk) <- paste0(names(snk),"B")              # add suffix for permutation
+
+loc_pairs <-
+  tidyr::crossing(snk, src) %>%                   # crossing all combinations of towns
+  dplyr::mutate(d = geosphere::distHaversine(cbind(LonA, LatA),           
+                           cbind(LonB, LatB))/1e3) %>%  
+  dplyr::rename(t = tB, a = aB, r = min_wts_nameB,# reference is sink town `B`
+                lieum = lieumpB,                  # rename to merge with migration rates
+                lieump = lieumpA) %>%          
+  dplyr::select(lieum, lieump, a, t, r, d, LonA, LatA, LonB, LatB, WSCSSDAB)   # subset columns of interest
+
+astrobleme_circle <- readRDS("/Users/luke/Documents/Genizon/Data/astrobleme_circle.RDS")
+
+crs_string = "+proj=omerc +lat_0=46.8560266 +lonc=-71.6218555 +alpha=0 +k_0=.7 +datum=WGS84 +units=m +no_defs +gamma=35"
+
+# Earth’s radius, sphere
+R<-6378137
+
+gplot_alt <- readRDS(file = "/Users/luke/Documents/can_dem/combined_gplot_may2022_1e4.RDS") %>% filter(value > 0) %>% mutate(value = ifelse(value > 1000, 1000,value))
+```
+
+
+```{r,fig.height=7, fig.width=7 warning=FALSE, include=FALSE}
+get_region_extent <- function(locations, regions){
+ locations %>%
+  dplyr::mutate(region = {{ regions }}) %>%
+  group_by(region) %>%
+  dplyr::summarise(x1 = min(Lon),
+                   x2 = max(Lon),
+                   y1 = min(Lat),
+                   y2 = max(Lat)) %>%
+  mutate(dx = distHaversine(cbind(x1,y1),cbind(x2,y1)) / 2,   # distance between min and max town locations
+         dy = distHaversine(cbind(x1,y1),cbind(x1,y2)) / 2,
+         mdLat = dy / R,
+         mdLon = dx / ( R * cos( pi * y1 / 180 ) ),
+         midLat = y1 + mdLat * 180 / pi,
+         midLon = x1 + mdLon * 180 / pi,
+         dim = ifelse(dx > dy, dx + 5e4, dy + 5e4),                        # set standard offset amount (meters)
+         dLat = dim / R,
+         dLon = dim / ( R * cos( pi * y1 / 180 ) ),
+         lon1 = midLon - dLon * 180 / pi,
+         lon2 = midLon + dLon * 180 / pi,
+         lat1 = midLat - dLat * 180 / pi,
+         lat2 = midLat + dLat * 180 / pi) %>%
+  dplyr::select(region, lon1, lat1, lon2, lat2) 
+}
+
+make_cropped_plot <-function(x) {
+  
+  r <- filter(region_extent, region == x)
+  x1 <- r$lon1
+  x2 <- r$lon2
+  y1 <- r$lat1
+  y2 <- r$lat2
+
+  pts <- filter(locs_sf, area == x)
+  min_size = min(locs_sf$relative_kinship_realized)
+  max_size = max(locs_sf$relative_kinship_realized)
+
+  wts_bound <- inner_join(watershed_boundaries, watershed_clines) %>% filter(cline == x) %>%
+    rmapshaper::ms_dissolve()
+
+  ggplot()+
+    geom_contour_filled(data = m_gplot, aes(x = x, y = y, z = value), bins = 12, alpha = 0.9, color = "NA") +
+    geom_sf(data=political_processed %>% filter(ctry_en %in% c("Canada"), !juri_en %in% c("Quebec")), fill = "gray95", color = NA) +
+    geom_sf(data=political_processed %>% filter(!ctry_en %in% c("Canada","Ocean")), fill = "gray95", color = NA)+
+    geom_sf(data=wts_processed, fill = NA, color = "black", size = 0.15) +
+    geom_sf(data = wts_bound, fill = alpha("black",0.2), color = "royalblue1", size = 1) +
+    geom_sf(data = simplified_water_area, size = 0.15, color = "aliceblue", fill = "aliceblue") +
+    geom_sf(data = pts, aes(color = kinship_weighted_date, size = relative_kinship_realized), alpha = 0.75) +
+    scale_color_viridis_c(option = "B", breaks = seq(1700,1950, 50), name = "Time") +
+    scale_fill_grey(name = "Elevation (m)", start=0.9, end=0.2) + 
+    guides(fill="none")+
+    scale_size_area(breaks=size_bins$sizes, name = "Realized\nKinship", max_size = 40, limits = c(min_size, max_size)) +
+    theme(axis.title = element_blank(),
+          legend.key = element_rect(fill = "transparent", colour = "transparent")) +
+    coord_sf(xlim = c(x1,x2),
+             ylim = c(y1,y2))+  
+  ggspatial::annotation_scale(location = "br", width_hint = 0.2) +
+  ggspatial::annotation_north_arrow(location = "br", which_north = "true", 
+                         pad_x = unit(0.1, "in"), pad_y = unit(0.3, "in"),
+                         style = north_arrow_fancy_orienteering)
+}
+
+make_cropped_arrow_plot <-function(x) {
+  
+  r <- filter(region_extent, region == x)
+  x1 <- r$lon1
+  x2 <- r$lon2
+  y1 <- r$lat1
+  y2 <- r$lat2
+  
+migration_vector_field <-
+    pedigree_full %>%                               # entire genealogy from BALSAC
+    inner_join(filter(area_lineage_table, area == x)) %>%
+    left_join(locations, by = "lieum")  %>%
+    group_by(lieump, lieum) %>%                     # source `A` (birth) and sink `B` (marriage)
+    dplyr::summarise(migrants = n(),
+                     contribution = sum(expected_contribution, na.rm = T),
+                     #coalescence = sum(coalescence_rate, na.rm = T),
+                     kinship = sum(realized_kinship, na.rm = T),
+                     gdate = weighted.mean(datem, w = expected_contribution, na.rm = T)) %>%
+    inner_join(loc_pairs) %>%
+    filter(d > 0) %>%
+    arrange(lieum, -gdate) %>%
+    group_by(lieum) %>% 
+    dplyr::mutate(rank = rank(-kinship, ties.method = "first")) %>%
+    ungroup()
+  
+locations_inside <- filter(locations, cline == x)
+
+top_migrations_inside <-
+  filter(migration_vector_field,
+         lieum %in% locations_inside$lieum,
+         rank == 1, kinship > 10)
+
+major_migrations <-
+  migration_vector_field %>%
+  filter(rank == 1) %>%
+  top_frac(. , n = 0.05, wt = contribution)
+
+  wts_bound <- filter(watershed_boundaries, WSCSSDA %in% unique(locations_inside$WSCSSDA)) %>%
+    rmapshaper::ms_dissolve()
+
+#bg_map +
+ggplot()+
+  geom_contour_filled(data = m_gplot, aes(x = x, y = y, z = value), bins = 12, alpha = 0.9, color = "NA") +
+  geom_sf(data=political_processed %>% filter(ctry_en %in% c("Canada"), !juri_en %in% c("Quebec")), fill = "gray95", color = NA) +
+  geom_sf(data=political_processed %>% filter(!ctry_en %in% c("Canada","Ocean")), fill = "gray95", color = NA)+
+  geom_sf(data=wts_processed, fill = NA, color = "grey20", size = 0.3) +
+  geom_sf(data = wts_bound, fill = alpha("black",0.2), color = "royalblue1", size = 1) +
+  geom_sf(data = simplified_water_area, size = 0.15, color = "aliceblue", fill = "aliceblue") +
+  geom_spatial_segment(data = major_migrations, 
+                       aes(x= LonA, y = LatA, xend = LonB,  yend = LatB, color = gdate),  
+                       size = 1,
+                       lineend = "butt", linejoin = "mitre",
+                       arrow = arrow(length = unit(0.2,"cm"), type = "closed")) +
+  geom_spatial_segment(data = top_migrations_inside, 
+                       aes(x= LonA, y = LatA, xend = LonB,  yend = LatB, color = gdate),  
+                       size = 1, linetype = 5,
+                       lineend = "butt", linejoin = "mitre",
+                       arrow = arrow(length = unit(0.3,"cm"), type = "closed")) +
+  scale_color_viridis_c(option = "B", breaks = seq(1700,1950, 50), name = "Time") +
+  scale_fill_grey(name = "Elevation (m)", start=0.9, end=0.2) +
+  guides(fill = "none")+
+  theme(axis.title = element_blank(),
+        legend.position="none",             
+        axis.text = element_blank(),             
+        axis.ticks = element_blank()) +
+  coord_sf(xlim = c(x1,x2),
+           ylim = c(y1,y2))+  
+  ggspatial::annotation_scale(location = "br", width_hint = 0.2) +
+  ggspatial::annotation_north_arrow(location = "br", which_north = "true", 
+                         pad_x = unit(0.1, "in"), pad_y = unit(0.3, "in"),
+                         style = north_arrow_fancy_orienteering)
+}
+
+
+range_dispersal <-function(x) {
+  ancestor_range <- filter(top_contributors, ind %in% x) %>%
+    mutate(lab = paste0(t1," (",datem1,")\n",round(area_contribution, 2)," genomes")) %>%
+    arrange(-area_contribution)
+  
+  ancestor_range$lab <- factor(ancestor_range$lab, levels = unique(ancestor_range$lab))
+  ind_loc <- ancestor_range %>% distinct(Lon1, Lat1, lab)
+  ancestor_range2 <- with(ancestor_range, ancestor_range[rep(1:nrow(ancestor_range), percent_contribution),])
+  locations_inside <- filter(locations, cline == unique(ancestor_range$area))
+  wts_bound <- filter(watershed_boundaries, WSCSSDA %in% unique(locations_inside$WSCSSDA)) %>%
+    rmapshaper::ms_dissolve()
+
+  r <- filter(region_extent, region == unique(ancestor_range$area))
+  x1 <- r$lon1
+  x2 <- r$lon2
+  y1 <- r$lat1
+  y2 <- r$lat2
+  
+
+  
+ ggplot()+
+    geom_contour_filled(data = m_gplot, aes(x = x, y = y, z = value), bins = 12, alpha = 0.9, color = "NA") +
+    scale_fill_grey(name = "Elevation (m)", start=0.9, end=0.2) +
+   guides(fill="none") +
+    ggnewscale::new_scale("fill") +
+    geom_sf(data=political_processed %>% filter(ctry_en %in% c("Canada"), !juri_en %in% c("Quebec")), fill = "gray95", color = NA) +
+    geom_sf(data=political_processed %>% filter(!ctry_en %in% c("Canada","Ocean")), fill = "gray95", color = NA)+
+    geom_sf(data=wts_processed, fill = NA, color = "black", size = 0.15) +
+    geom_sf(data = wts_bound, fill = alpha("black",0.2), color = "royalblue1", size = 1) +
+    geom_sf(data = simplified_water_area, size = 0.15, color = "aliceblue", fill = "aliceblue") +
+    stat_density2d(data = ancestor_range2, 
+                   aes(Lon, Lat, alpha=..level.., fill=..level..), 
+                   size=2, bins=7, n = 500, geom="polygon") + 
+    geom_density2d(data = ancestor_range2, aes(Lon, Lat),
+                   colour="black", bins=7, n = 500, size = 0.3, linetype = 3) +
+    #geom_point(data = ancestor_range, aes(Lon, Lat), size = 0.01, color = "grey40") +
+    geom_point(data = ind_loc, aes(Lon1, Lat1), size = 4, color = "royalblue1") +
+    scale_alpha(range = c(0.00, 0.5), guide = FALSE) +
+    scale_fill_gradient(low = "yellow", high = "red") +
+    guides(alpha="none", fill = "none") +
+    coord_sf(xlim = c(x1,x2),
+             ylim = c(y1,y2)) +
+    theme(axis.text = element_blank(), 
+          axis.title = element_blank(), 
+          axis.ticks = element_blank(),
+          strip.text = element_blank(),
+          panel.grid = element_blank(),
+          legend.position="none")+  
+  ggspatial::annotation_scale(location = "br", width_hint = 0.2) +
+  ggspatial::annotation_north_arrow(location = "br", which_north = "true", 
+                         pad_x = unit(0.1, "in"), pad_y = unit(0.3, "in"),
+                         style = north_arrow_fancy_orienteering)
+}
+
+ 
+#top_contributors %>% filter(area == "PC1") %>% 
+#  arrange(-area_contribution) %>% 
+#  distinct(ind) %>% 
+#  head(1) %>% pull(ind) %>%
+#  range_dispersal(.) %>%
+#  ggsave(file = paste0(figurePath,"regional_histories_p1_test.jpg"))
+```
+
+```{r}
+area_lineage_table <- tibble()
+for(area in unique(locations$cline)){
+  if(is.na(area)){next}
+  fn <- paste0("~/Documents/Genizon/Data/lineage_tables/lineage_table_",area,".csv")
+  if(!file.exists(fn)){next}
+  area_lineage_table <-
+    pedigree_full %>%                # entire genealogy from BALSAC
+    inner_join(data.table::fread(fn)) %>%
+    left_join(locations, by = "lieum") %>%
+    mutate(area = area) %>%
+    dplyr::select(ind, father, mother, datem, generation, lieum, lieump, t, Lon, Lat, 
+                  realized_kinship, expected_contribution, area) %>%
+    bind_rows(area_lineage_table)
+}
+
+all_lineage_tables <- data.table::fread("~/Documents/Genizon/Data/lineage_tables/all_town_lineage_tables.txt")
+
+probands_per_area <-
+    inner_join(pedigree_full,locations) %>%
+    filter(!ind %in% father,        # not fathers
+           !ind %in% mother,        # or mothers
+           !is.na(lieum),           # who married
+           !is.na(datem),           # who married
+           !is.na(cline),
+           datemp > 1900) %>%       # hard cap at 1900
+    group_by(cline) %>% 
+    tally(name = "n_probands") %>% 
+    ungroup() %>%
+    dplyr::rename(area = cline)
+
+area_summary_stats <-
+  area_lineage_table %>%
+  filter(!is.na(Lon),
+         generation > 0) %>%
+  group_by(Lon, Lat, t, area) %>%
+  dplyr::summarise(area_realized_kinship = sum(realized_kinship, na.rm = T),
+                   area_contribution = sum(expected_contribution, na.rm = T),
+                   kinship_weighted_date = weighted.mean(datem, w = realized_kinship, na.rm = T),
+                   contribution_weighted_date = weighted.mean(datem, w = expected_contribution, na.rm = T)) %>%     ### WEIGHT CHANGE
+  ungroup() %>%
+  left_join(probands_per_area) %>%
+  mutate(relative_kinship_realized = area_realized_kinship / n_probands^2)
+
+total_kinship_per_region <-
+  area_summary_stats %>%
+  group_by(area) %>%
+  dplyr::summarise(total_kinship = sum(area_realized_kinship))
+
+
+number_of_town_probands <- 
+  pedigree_full %>% 
+  filter(!ind %in% father,        # not fathers
+         !ind %in% mother,        # or mothers
+         !is.na(lieum),           # who married
+         !is.na(datem),           # who married
+         datemp > 1900) %>%          # hard cap at 1900 
+  group_by(lieum) %>% tally() %>%
+  dplyr::rename(pb_town = lieum)
+
+couple_ids <- pedigree_full %>% distinct(mother, father)
+
+mothers <-
+  area_lineage_table %>%
+  dplyr::select(ind, expected_contribution, area) %>%
+  dplyr::rename(mother = ind, m_cont = expected_contribution) %>%
+  inner_join(couple_ids)
+
+fathers <-
+  area_lineage_table %>%
+  dplyr::select(ind, expected_contribution, area) %>%
+  dplyr::rename(father = ind, f_cont = expected_contribution) %>%
+  inner_join(couple_ids)
+  
+couples <- 
+  full_join(mothers, fathers) %>% 
+  # choose one partner per couple
+  mutate(ind = ifelse(m_cont > f_cont, mother, father)) %>%
+  dplyr::select(ind, area) %>%
+  left_join(area_lineage_table)
+
+top_contributors <-
+  couples %>% 
+  filter(!is.na(Lon)) %>%
+  group_by(area) %>%
+  top_n(n = 10, wt = realized_kinship) %>% 
+  #slice(10) %>%
+  dplyr::rename(area_contribution = expected_contribution,
+                t1 = t, datem1 = datem, Lon1 = Lon, Lat1 = Lat) %>%
+  dplyr::select(ind, area_contribution, t1, datem1, Lon1, Lat1) %>%
+  inner_join(all_lineage_tables) %>%
+  left_join(number_of_town_probands) %>%
+  mutate(percent_contribution = expected_contribution / n * 10000) %>%
+  dplyr::rename(lieum = pb_town) %>%
+  left_join(locations) %>% arrange(area)
+
+total_kinship_per_top10<-  
+  couples %>% 
+  filter(!is.na(Lon)) %>%
+  group_by(area) %>%
+  top_n(n = 10, wt = realized_kinship) %>% slice(1:10) %>%
+  dplyr::summarise(total_kinship_10 = sum(realized_kinship))
+
+total_kinship_per_area<-  
+  area_lineage_table %>%
+  group_by(area) %>%
+  dplyr::summarise(total_kinship = sum(realized_kinship))
+
+locs_sf <- st_as_sf(area_summary_stats, coords = c("Lon", "Lat"), crs = 4269)
+locations_in_area <- filter(locations, !is.na(cline)) %>% mutate(area = cline)
+main_points <- area_summary_stats %>% group_by(area) %>% top_frac(wt = area_contribution, n = 0.01)# %>% bind_rows(locations_in_area)
+size_bins <- 
+  tibble(sizes = c(1e-10, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5,1e-4,1e-3, 0.01,0.05,0.1,0.5,
+                   1,5,10,50,100,500, 1000, 10000, 100000, 1000000, 5000000)) %>%
+  filter(sizes <= max(area_summary_stats$relative_kinship_realized)) %>%
+  arrange(-sizes) %>% head(4)
+
+region_extent <- get_region_extent(main_points, area)
+
+labelled_towns <- 
+  area_summary_stats %>% 
+  group_by(area) %>% 
+  top_n(wt = area_contribution, n = 7) %>% 
+  mutate(title = gsub("''","'",t)) %>%
+  full_join(area_summary_stats) %>%
+  replace_na(list(title = "")) %>%
+  st_as_sf(coords = c("Lon", "Lat"),crs = 4269)
+
+cvx_lab <- 
+  tibble(Lon = -70.670000, Lat = 47.533333, 
+         label = "Charlevoix\nAstrobleme") %>%
+  st_as_sf(coords = c("Lon", "Lat"),crs = 4269)
+
+
+#full_join(total_kinship_per_area, total_kinship_per_top10) %>% mutate(fraction = total_kinship_10/ total_kinship)
+```
+
+```{r}
+# now add the title
+t1 <- ggdraw() + draw_label("Saguenay (PC1)",fontface = 'bold', hjust = 0.5, size = 30) + theme(plot.margin = margin(0,0,0,0))
+t2 <- ggdraw() + draw_label("Bas-Saint-Laurent (PC2)",fontface = 'bold', hjust = 0.5, size = 30) + theme(plot.margin = margin(0,0,0,0))
+t3 <- ggdraw() + draw_label("Beauce (PC3)",fontface = 'bold', hjust = 0.5, size = 30) + theme(plot.margin = margin(0,0,0,0))
+title <- plot_grid(t1,t2,t3,align = 'vh',nrow = 1)
+
+PC1_lab <-
+  make_cropped_plot("PC1")+  
+  ggrepel::geom_label_repel(
+    data = filter(labelled_towns, area == "PC1"),
+    aes(label = title, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 7,
+    min.segment.length = 0,
+    max.overlaps = Inf,
+    force = 10,
+    nudge_x = 0.7,
+    box.padding = 0.5,
+    #nudge_y = -0.1,
+    ylim = c(45,48.7),
+    segment.linetype = 6,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20,
+    segment.size = 0.7,
+    fill = "white",
+    alpha = 0.5,
+    seed = 1234
+  ) +
+  ggrepel::geom_label_repel(
+    data = filter(labelled_towns, area == "PC1"),
+    aes(label = title, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 7,
+    min.segment.length = 0,
+    max.overlaps = Inf,
+    force = 10,
+    nudge_x = 0.7,
+    box.padding = 0.5,
+    #nudge_y = -0.1,
+    ylim = c(45,48.7),
+    segment.linetype = 6,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20,
+    segment.size = 0.7,
+    fill = NA,
+    seed = 1234
+  ) + theme(legend.position="none",             
+            axis.text = element_blank(),             
+            axis.ticks = element_blank())
+
+PC2_lab <-
+  make_cropped_plot("PC2")+
+  ggrepel::geom_label_repel(
+    data = filter(labelled_towns, area == "PC2"),
+    aes(label = title, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 7,
+    min.segment.length = 0,
+    max.overlaps = Inf,
+    force = 10,
+    nudge_x = -0.4,
+    box.padding = 0.5,
+    nudge_y = 1,
+    segment.linetype = 6,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20,
+    segment.size = 0.7,
+    fill = "white",
+    alpha = 0.5,
+    seed = 1234
+  ) +
+  ggrepel::geom_label_repel(
+    data = filter(labelled_towns, area == "PC2"),
+    aes(label = title, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 7,
+    min.segment.length = 0,
+    max.overlaps = Inf,
+    force = 10,
+    nudge_x = -0.4,
+    box.padding = 0.5,
+    nudge_y = 1,
+    segment.linetype = 6,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20,
+    segment.size = 0.7,
+    fill = NA,
+    seed = 1234
+  ) + theme(legend.position="none",             
+            axis.text = element_blank(),             
+            axis.ticks = element_blank())
+
+PC3_lab <-
+  make_cropped_plot("PC3")+
+  ggrepel::geom_label_repel(
+    data = filter(labelled_towns, area == "PC3"),
+    aes(label = title, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 7,
+    min.segment.length = 0,
+    max.overlaps = Inf,
+    force = 10,
+    nudge_x = -0.75,
+    box.padding = 0.5,
+    nudge_y = -0.1,
+    segment.linetype = 6,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20,
+    segment.size = 0.7,
+    fill = "white",
+    alpha = 0.5,
+    seed = 1234
+  ) +
+  ggrepel::geom_label_repel(
+    data = filter(labelled_towns, area == "PC3"),
+    aes(label = title, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 7,
+    min.segment.length = 0,
+    max.overlaps = Inf,
+    force = 10,
+    nudge_x = -0.75,
+    box.padding = 0.5,
+    nudge_y = -0.1,
+    segment.linetype = 6,
+    segment.curvature = -0.1,
+    segment.ncp = 3,
+    segment.angle = 20,
+    segment.size = 0.7,
+    fill = NA,
+    seed = 1234
+  ) + theme(legend.position="none",             
+            axis.text = element_blank(),             
+            axis.ticks = element_blank())
+
+# arrange the three plots in a single row
+prow <- plot_grid(
+  PC1_lab,
+  PC2_lab,
+  PC3_lab,
+  align = 'vh',
+  labels = c("A", "B", "C"),
+  hjust = -1,
+  nrow = 1,
+  label_size = 35
+)
+# extract a legend that is laid out horizontally
+legend_b <- get_legend(
+  PC1_lab + 
+    guides(size = guide_legend(ncol = 1)) +
+    theme(legend.position = "right",
+          legend.text = element_text(size=30),
+          legend.title = element_text(size=30), 
+          legend.key.height = unit(1.5, "cm"),
+          legend.key = element_rect(fill = "transparent", 
+                                    colour = "transparent"))
+)
+
+
+PC1_lab_a <-
+  make_cropped_arrow_plot("PC1")+
+  theme(legend.position="none",
+            axis.text = element_blank(),
+            axis.ticks = element_blank()) +
+  geom_polygon(data = astrobleme_circle, aes(lon, lat, group = ID), color = "black", alpha = 0, linetype = 2, size = 2) +
+  geom_point(aes(x = -70.300000, y = 47.533333), shape = 3, size = 15) + 
+  geom_point(aes(x = -70.300000, y = 47.533333), shape = 23, size = 7, fill = "white") +
+  ggrepel::geom_label_repel(data=cvx_lab, aes(label = label, geometry = geometry),
+                            stat = "sf_coordinates",
+                            size = 7,
+                            xlim = c(-73,-71.7),
+                            ylim = c(46,47.3),
+                            segment.linetype = 6,
+                            segment.curvature = -0.1,
+                            segment.ncp = 3,
+                            segment.angle = 20,
+                            segment.size = 0.7,
+                            fill = "white",
+                            alpha = 0.5,
+                            seed = 1234) +
+    ggrepel::geom_label_repel(data=cvx_lab, aes(label = label, geometry = geometry),
+                            stat = "sf_coordinates",
+                            size = 7,
+                            xlim = c(-73,-71.7),
+                            ylim = c(46,47.3),
+                            segment.linetype = 6,
+                            segment.curvature = -0.1,
+                            segment.ncp = 3,
+                            segment.angle = 20,
+                            segment.size = 0.7,
+                            fill = NA,
+                            seed = 1234)
+  
+PC2_lab_a <-
+  make_cropped_arrow_plot("PC2")+
+  theme(legend.position="none",             
+            axis.text = element_blank(),             
+            axis.ticks = element_blank())
+
+PC3_lab_a <-
+  make_cropped_arrow_plot("PC3")+
+  theme(legend.position="none",             
+            axis.text = element_blank(),             
+            axis.ticks = element_blank())
+
+# arrange the three plots in a single row
+prow_a <- plot_grid(
+  PC1_lab_a,
+  PC2_lab_a,
+  PC3_lab_a,
+  align = 'vh',
+  labels = c("D", "E", "F"),
+  hjust = -1,
+  nrow = 1,
+  label_size = 35
+)
+
+p1 <- 
+  top_contributors %>% filter(area == "PC1") %>% 
+  arrange(-area_contribution) %>% 
+  distinct(ind) %>% 
+  head(1) %>% pull(ind) %>%
+  range_dispersal(.)
+
+p2 <- 
+  top_contributors %>% filter(area == "PC2") %>% 
+  arrange(-area_contribution) %>% 
+  distinct(ind) %>% 
+  head(1) %>% pull(ind) %>%
+  range_dispersal(.)
+
+p3 <- top_contributors %>% filter(area == "PC3") %>% 
+  arrange(-area_contribution) %>% 
+  distinct(ind) %>% 
+  head(1) %>% pull(ind) %>%
+  range_dispersal(.)
+
+range_plot <- plot_grid(
+  p1,p2,p3,
+  align = 'vh',
+  labels = c("G", "H", "I"),
+  hjust = -1,
+  nrow = 1,
+  label_size = 35
+)
+
+complete2 <-  plot_grid(plot_grid(
+  title, prow, prow_a, range_plot,
+  ncol = 1, rel_heights = c(.1,1,1,1)), 
+  plot_grid(legend_b,NULL, ncol = 1, rel_heights = c(1,0.4)), 
+  nrow = 1, rel_widths = c(1, .15))
+
+ggsave(complete2, file = paste0(figurePath,"regional_histories_range_percent_contribution_june2022_alt.jpg"), height = 25, width = 27, dpi = 500, bg = "white")
+
+```
+
+#heat map
+```{r}
+contribution_heat_map<-
+  couples %>% 
+  filter(!is.na(Lon)) %>%
+  group_by(area) %>%
+  top_n(n = 10, wt = realized_kinship) %>%
+  mutate(major_area = area) %>%
+  ungroup() %>%
+  arrange(desc(major_area),expected_contribution) %>%
+  distinct(ind, major_area) %>%
+  left_join(area_lineage_table) %>%
+  dplyr::select(ind, major_area, area, expected_contribution)
+
+contribution_heat_map$ind <- factor(contribution_heat_map$ind, levels = unique(contribution_heat_map$ind))
+
+contribution_heat <-
+ggplot(contribution_heat_map, 
+            aes(x = area, 
+                y = ind, 
+                fill = expected_contribution)) + 
+  geom_tile() + 
+  geom_text(data = contribution_heat_map %>% 
+              mutate(ff =  ifelse(expected_contribution > 500,
+                     "bold", "plain"),
+                     fc =  ifelse(expected_contribution > 500,
+                     "white", "black")),
+           aes(label = round(expected_contribution),
+               fontface = ff,
+               color = fc),
+           size = 3) +
+  scale_fill_gradient(low = "white", 
+                      high = "black",
+                      name = "Contribution") + 
+  guides(fill = "none") +
+  scale_color_identity()+
+  scale_x_discrete(position = "top") +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 20),
+        axis.text.y = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line = element_blank(),
+        plot.margin = margin(0,0,0,0),
+        legend.position = "bottom",
+        legend.direction = "horizontal")
+
+ggsave(contribution_heat, file = paste0(figurePath,"contribution_heatmap.jpg"), height = 7, width = 4)
+```
+
+```{r}
+blue_points <- top_contributors %>% distinct(ind, area)
+cp1<-
+  ggplot() +
+  geom_point(data = filter(area_lineage_table, expected_contribution > 1, area=="PC1"),
+             aes(x = datem, y = expected_contribution), size = 0.5, color = "grey60") + 
+  geom_point(data = filter(blue_points, area=="PC1") %>% inner_join(area_lineage_table),
+             aes(x = datem, y = expected_contribution), size = 4, color = "blue") +
+  theme_bw()  +  labs(x = "Time", y = "Contribution") +
+  theme(axis.text = element_text(size = 20), axis.title = element_text(size = 20),
+        panel.grid.minor.y = element_blank(),
+        plot.margin = margin(1,0,0,5))
+cp2<-
+  ggplot() +
+  geom_point(data = filter(area_lineage_table, expected_contribution > 1, area=="PC2"),
+             aes(x = datem, y = expected_contribution), size = 0.5, color = "grey60") + 
+  geom_point(data = filter(blue_points, area=="PC2") %>% inner_join(area_lineage_table),
+             aes(x = datem, y = expected_contribution), size = 4, color = "blue") +
+  theme_bw()  +  labs(x = "Time", y = "Contribution") +
+  theme(axis.text = element_text(size = 20), axis.title = element_text(size = 20),
+        panel.grid.minor.y = element_blank(),
+        plot.margin = margin(1,0,0,5))
+cp3<-
+  ggplot() +
+  geom_point(data = filter(area_lineage_table, expected_contribution > 1, area=="PC3"),
+             aes(x = datem, y = expected_contribution), size = 0.5, color = "grey60") + 
+  geom_point(data = filter(blue_points, area=="PC3") %>% inner_join(area_lineage_table),
+             aes(x = datem, y = expected_contribution), size = 4, color = "blue") +
+  theme_bw()  +  labs(x = "Time", y = "Contribution") +
+  theme(axis.text = element_text(size = 20), axis.title = element_text(size = 20),
+        panel.grid.minor.y = element_blank(),
+        plot.margin = margin(1,0,0,5))
+
+# arrange the three plots in a single row
+cont_plot <- plot_grid(
+  cp1,cp2,cp3,
+  align = 'vh',
+  labels = "AUTO",
+  #hjust = 1,
+  nrow = 1,
+  label_size = 35
+)
+
+ggsave(cont_plot, file = paste0(figurePath,"ancestors_contributions.jpg"), height = 5, width = 16)
+
+```
+
+
+
+```{r}
+PC1_top_contributors <- top_contributors %>% filter(area == "PC1") %>% 
+  arrange(-area_contribution) %>% distinct(ind) %>% head(5) %>% pull(ind)
+
+p1a <- range_dispersal(PC1_top_contributors[[1]])
+p1b <- range_dispersal(PC1_top_contributors[[2]])
+p1c <- range_dispersal(PC1_top_contributors[[3]])
+p1d <- range_dispersal(PC1_top_contributors[[4]])
+p1e <- range_dispersal(PC1_top_contributors[[5]])
+
+PC2_top_contributors <- top_contributors %>% filter(area == "PC2") %>% 
+  arrange(-area_contribution) %>% distinct(ind) %>% head(5) %>% pull(ind)
+
+p2a <- range_dispersal(PC2_top_contributors[[1]])
+p2b <- range_dispersal(PC2_top_contributors[[2]])
+p2c <- range_dispersal(PC2_top_contributors[[3]])
+p2d <- range_dispersal(PC2_top_contributors[[4]])
+p2e <- range_dispersal(PC2_top_contributors[[5]])
+
+PC3_top_contributors <- top_contributors %>% filter(area == "PC3") %>% 
+  arrange(-area_contribution) %>% distinct(ind) %>% head(5) %>% pull(ind)
+
+p3a <- range_dispersal(PC3_top_contributors[[1]])
+p3b <- range_dispersal(PC3_top_contributors[[2]])
+p3c <- range_dispersal(PC3_top_contributors[[3]])
+p3d <- range_dispersal(PC3_top_contributors[[4]])
+p3e <- range_dispersal(PC3_top_contributors[[5]])
+
+
+
+range_plot_top <- plot_grid(
+  p1a,p1b,p1c,p1d,p1e,
+  p2a,p2b,p2c,p2d,p2e,
+  p3a,p3b,p3c,p3d,p3e,
+  align = 'vh',
+  hjust = -1,
+  nrow = 3,
+  label_size = 35
+)
+
+ggsave(range_plot_top, file = paste0(figurePath,"regional_histories_top_five.jpg"), height = 15, width = 22, dpi = 500)
+
+```
+
+```{r}
+ind_locs <- left_join(pedigree_full, locations) %>% dplyr::select(ind, datem, Lon, Lat)
+
+top_contributor_overall <-
+  all_lineage_tables %>%
+  left_join(ind_locs) %>%
+  filter(!is.na(Lon)) %>%
+  group_by(ind, datem, Lon, Lat) %>%
+  dplyr::summarise(total_expected_contribution = sum(expected_contribution)) %>%
+  ungroup()
+
+top_range <- 
+  top_contributor_overall %>%
+  top_n(n = 1, wt = total_expected_contribution) %>% 
+  slice(1) %>%
+  dplyr::rename(Lon1 = Lon, Lat1 = Lat) %>%
+  dplyr::select(ind, total_expected_contribution, Lon1, Lat1) %>%
+  inner_join(all_lineage_tables) %>%
+  left_join(number_of_town_probands) %>%
+  mutate(percent_contribution = expected_contribution / n * 10000) %>%
+  dplyr::rename(lieum = pb_town) %>%
+  left_join(locations)
+
+
+total_cont <-
+  ggplot() +
+  geom_point(data = filter(top_contributor_overall, total_expected_contribution > 10),
+             aes(x = datem, y = total_expected_contribution), size = 0.5, color = "grey60") + 
+  geom_point(data = filter(top_contributor_overall, ind %in% top_range$ind),
+             aes(x = datem, y = total_expected_contribution), size = 4, color = "blue") +
+  theme_bw()  +  labs(x = "Time", y = "Contribution") +
+  scale_x_continuous(breaks = seq(1650,1950,50)) +
+  theme(axis.text = element_text(size = 20), axis.title = element_text(size = 20),
+        panel.grid.minor.y = element_blank())
+
+  ancestor_range <- top_range
+  ind_loc <- ancestor_range %>% distinct(Lon1, Lat1)
+  #https://stackoverflow.com/questions/21273525/weight-equivalent-for-geom-density2d
+  ancestor_range2 <- with(ancestor_range, ancestor_range[rep(1:nrow(ancestor_range), percent_contribution),])
+  
+  max_range <-
+    bg_map +
+    stat_density2d(data = ancestor_range2, 
+                   aes(Lon, Lat, alpha=..level.., fill=..level..), 
+                   size=2, bins=7, geom="polygon") + 
+    geom_density2d(data = ancestor_range2, aes(Lon, Lat),
+                   colour="black", bins=7, size = 0.3, linetype = 3) +
+    ggrepel::geom_text_repel(data = ind_loc, aes(Lon1, Lat1, label = "Ste Famille (1670)"), size = 4, nudge_y = 0.3, nudge_x = -0.5) +
+    geom_point(data = ind_loc, aes(Lon1, Lat1), size = 4, color = "blue") +
+    scale_alpha(range = c(0.00, 0.5), guide = FALSE) +
+    scale_fill_gradient(low = "yellow", high = "red") +
+    guides(alpha="none", fill = "none") +
+    coord_sf(xlim = c(-74.7,-67),
+             ylim = c(45,49.5)) +
+    theme(axis.text = element_blank(), axis.title = element_blank(), axis.ticks = element_blank())
+  
+  top_cont_range <- 
+    plot_grid(total_cont, max_range, ncol = 1, rel_heights = c(0.5,1), labels = "AUTO", label_size = 30, align = "v", axis = "l")
+  
+  ggsave(top_cont_range, file = paste0(figurePath,"max_range_top_contributor.jpg"), height = 14, width = 12, dpi = 500)
+```
