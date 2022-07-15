@@ -2,7 +2,7 @@
 
 This github repository contains supplementary code related to a manuscript entitled "On the Genes, Genealogies, and Geographies of Quebec".
 
-A PDF of the manuscript can be found in the main directory of this repository.
+[A PDF of the manuscript](https://github.com/LukeAndersonTrocme/genes_in_space/blob/main/genes_in_space.pdf) can be found in the main directory of this repository.
 
 The Supplementary Code directory contains three folders :
 
