@@ -13,3 +13,5 @@ The Supplementary Code directory contains three folders :
  - [watershed_enrichment](https://github.com/LukeAndersonTrocme/genes_in_space/tree/main/supplementary_code/watershed_enrichment) folder contains the code used to compute the watershed enrichment of the three metrics in Figure 3.
 
 We also provide a link to Zenodo which house the freely available results of simulations shown in figure 2: https://doi.org/10.5281/zenodo.6839683
+
+For details and pipelines related to genome simulation, please refer to [this git repository](https://github.com/LukeAndersonTrocme/genome_simulations)
