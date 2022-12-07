@@ -56,8 +56,8 @@ estimated_genetic_contribution <- function(pedigree, list_of_probands) {
       # if parent is missing, flag individual as founder
       mutate(
         founder = ifelse(is.na(father) | is.na(mother), T, F),
-        mother = case_when(is.na(mother) ~ ind, TRUE ~ mother), # revert to selfing if founder
-        father = case_when(is.na(father) ~ ind, TRUE ~ father)
+        mother = case_when(is.na(mother) ~ ind +  0.1, TRUE ~ mother), # revert to selfing if founder
+        father = case_when(is.na(father) ~ ind +  0.1, TRUE ~ father)
       )
 
     # stop climbing when there are only founders left

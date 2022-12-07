@@ -314,7 +314,9 @@ area_summary_stats <-
 total_kinship_per_region <-
   area_summary_stats %>%
   group_by(area) %>%
-  dplyr::summarise(total_kinship = sum(area_realized_kinship))
+  dplyr::summarise(total_kinship = sum(area_realized_kinship),
+                   total_relative_kinship = sum(relative_kinship_realized))
+
 
 
 number_of_town_probands <- 
