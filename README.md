@@ -19,6 +19,17 @@ Whole genome simulations of 1.4 million individuals are freely available on [Zen
 
 Pipelines related to genome simulation are available [here](https://github.com/LukeAndersonTrocme/genome_simulations).
 
+# Links to Geographical Data
+
+The geographical data used for this publication can be found on Open Canada geo base accessed through [https://open.canada.ca/](https://open.canada.ca/).
+
+
+The National Hydro Network GeoBase Series can be found [here](https://open.canada.ca/data/en/dataset/a4b190fe-e090-4e6d-881e-b87956c07977).
+
+
+The Canadian Digital Elevation Model GeoTIF files can be found [here](https://open.canada.ca/data/en/dataset/7f245e4d-76c2-4caa-951a-45d1d2051333)
+
+
 # Main Figures
 
 For more information, please refer to the [PDF](https://github.com/LukeAndersonTrocme/genes_in_space/blob/main/genes_in_space.pdf) 
