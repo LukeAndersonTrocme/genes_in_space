@@ -3,7 +3,7 @@
 Supplementary code related to a manuscript entitled "On the Genes, Genealogies, and Geographies of Quebec".
 
 ### The authors of this manuscript are :
-Luke Anderson-Trocmé, Dominic Nelson, Shadi Zabad, Alex Diaz-Papkovich, Nikolas Baya, Ben Jeffery, Mathilde Touvier, Christian Dina, Hélène Vézina, Jerome Kelleher, Simon Gravel
+Luke Anderson-Trocmé, Dominic Nelson, Shadi Zabad, Alex Diaz-Papkovich, Ivan Kryukov, Nikolas Baya, Ben Jeffery, Mathilde Touvier, Christian Dina, Hélène Vézina, Jerome Kelleher, Simon Gravel
 
 French abstract [here](https://github.com/LukeAndersonTrocme/genes_in_space/blob/main/GGGQ_Fr.pdf) 
 
