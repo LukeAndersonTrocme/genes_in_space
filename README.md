@@ -7,6 +7,14 @@ Luke Anderson-Trocmé, Dominic Nelson, Shadi Zabad, Alex Diaz-Papkovich, Ivan Kr
 
 French abstract [here](https://github.com/LukeAndersonTrocme/genes_in_space/blob/main/GGGQ_Fr.pdf) 
 
+# msprime genome simulations
+
+Whole genome simulations of 1.4 million individuals are freely available on [Zenodo](https://doi.org/10.5281/zenodo.6839683).
+
+Pipelines related to genome simulation are available [here](https://github.com/LukeAndersonTrocme/genome_simulations).
+
+`tskit` and `msprime` provide extensive [documentation](https://tskit.dev/msprime/docs/latest/api.html#msprime.sim_ancestry) about the simulations used in this paper.
+
 # Folders with Supplementary Code
 
  - [cross_coalescence](https://github.com/LukeAndersonTrocme/genes_in_space/tree/main/supplementary_code/cross_coalescence): compute genealogically based coalescence rates
@@ -14,10 +22,6 @@ French abstract [here](https://github.com/LukeAndersonTrocme/genes_in_space/blob
  - [data_viz](https://github.com/LukeAndersonTrocme/genes_in_space/tree/main/supplementary_code/data_viz): generate main figures of manuscript
 
  - [watershed_enrichment](https://github.com/LukeAndersonTrocme/genes_in_space/tree/main/supplementary_code/watershed_enrichment): compute watershed enrichment statisitics
-
-Whole genome simulations of 1.4 million individuals are freely available on [Zenodo](https://doi.org/10.5281/zenodo.6839683).
-
-Pipelines related to genome simulation are available [here](https://github.com/LukeAndersonTrocme/genome_simulations).
 
 # Links to Geographical Data
 
