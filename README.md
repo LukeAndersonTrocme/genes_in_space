@@ -13,7 +13,7 @@ Whole genome simulations of 1.4 million individuals are freely available on [Zen
 
 Pipelines related to genome simulation are available [here](https://github.com/LukeAndersonTrocme/genome_simulations).
 
-`tskit` and `msprime` provide extensive [documentation](https://tskit.dev/msprime/docs/latest/api.html#msprime.sim_ancestry) about the simulations used in this paper.
+`tskit` and `msprime` provide extensive [documentation](https://tskit.dev/msprime/docs/latest/api.html#msprime.sim_ancestry) about the [fixed pedigree](https://tskit.dev/msprime/docs/latest/ancestry.html#sec-ancestry-models-fixed-pedigree) simulations used in this paper.
 
 # Folders with Supplementary Code
 
