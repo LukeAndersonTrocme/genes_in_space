@@ -1,5 +1,7 @@
 # On the Genes, Genealogies, and Geographies of Quebec
 
+Free-access link to Science paper : [link](https://www.science.org/stoken/author-tokens/ST-1342/full)
+
 Supplementary code related to a manuscript entitled "On the Genes, Genealogies, and Geographies of Quebec".
 
 ### The authors of this manuscript are :
